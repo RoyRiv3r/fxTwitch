@@ -1,4 +1,4 @@
-# app_with_logger_and_caching.py
+# app_without_caching.py
 
 import os
 import logging
@@ -7,9 +7,6 @@ from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse
 import requests
 from urllib.parse import urlencode
 from dotenv import load_dotenv
-from cachetools import TTLCache, cached
-from cachetools.keys import hashkey
-import urllib.parse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -39,41 +36,6 @@ TWITCH_CLIENT_SECRET = os.getenv('TWITCH_CLIENT_SECRET')
 GITHUB_REDIRECT_URL = 'https://github.com/RoyRiv3r/RoyRiv3r'
 TINYURL_API = 'https://tinyurl.com/api-create.php'
 
-# Configure Caching
-CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'false').lower() == 'true'
-CACHE_TTL = int(os.getenv('CACHE_TTL', '300'))             # TTL for access tokens and clip info
-CACHE_TINYURL_TTL = int(os.getenv('CACHE_TINYURL_TTL', '600'))  # TTL for shortened URLs
-
-if CACHE_ENABLED:
-  access_token_cache = TTLCache(maxsize=100, ttl=CACHE_TTL)
-  clip_info_cache = TTLCache(maxsize=1000, ttl=CACHE_TTL)
-  tinyurl_cache = TTLCache(maxsize=1000, ttl=CACHE_TINYURL_TTL)
-  logger.info(f"✅ Caching is enabled with TTL={CACHE_TTL}s for tokens & clips, TTL={CACHE_TINYURL_TTL}s for TinyURLs.")
-else:
-  access_token_cache = {}
-  clip_info_cache = {}
-  tinyurl_cache = {}
-  logger.info("🚫 Caching is disabled.")
-
-
-def normalize_url(url: str) -> str:
-  """
-  Normalize the URL to ensure consistent caching.
-  - Strips leading/trailing whitespaces.
-  - Removes trailing slashes.
-  - Converts scheme and host to lowercase.
-  """
-  parsed = urllib.parse.urlparse(url.strip())
-  normalized = parsed._replace(
-      scheme=parsed.scheme.lower(),
-      netloc=parsed.netloc.lower(),
-      path=parsed.path.rstrip('/')
-  )
-  return normalized.geturl()
-
-
-@cached(cache=access_token_cache, key=lambda *args, **kwargs: hashkey("twitch_access_token") if CACHE_ENABLED else None)
-
 def fetch_twitch_access_token() -> dict:
   """
   Fetches Twitch OAuth access token.
@@ -96,8 +58,6 @@ def fetch_twitch_access_token() -> dict:
   logger.info("✅ Twitch access token obtained successfully.")
   return data
 
-
-@cached(cache=clip_info_cache, key=lambda clip_id: hashkey(clip_id) if CACHE_ENABLED else None)
 def fetch_clip_info_sync(clip_id: str) -> dict:
   """
   Fetches clip information from Twitch using their GraphQL API.
@@ -172,15 +132,13 @@ def fetch_clip_info_sync(clip_id: str) -> dict:
   logger.info(f"✅ Clip info retrieved for clip_id: {clip_id}")
   return clip_info
 
-
-@cached(cache=tinyurl_cache, key=lambda url: hashkey(normalize_url(url)) if CACHE_ENABLED else None)
 def fetch_shortened_url_sync(url: str) -> str:
   """
   Shortens a given URL using the TinyURL API.
   """
-  normalized_url = normalize_url(url)
-  logger.info(f"🔗 Shortening URL: {normalized_url}")
-  params = {'url': normalized_url}
+
+  logger.info(f"🔗 Shortening URL: {url}")
+  params = {'url': url}
   response = requests.get(TINYURL_API, params=params)
 
   if response.status_code != 200:
@@ -191,14 +149,12 @@ def fetch_shortened_url_sync(url: str) -> str:
   logger.info(f"✅ URL shortened to: {shortened}")
   return shortened
 
-
 async def get_twitch_access_token() -> str:
   """
   Asynchronous wrapper to get Twitch access token.
   """
   token_data = fetch_twitch_access_token()
   return token_data['access_token']
-
 
 async def get_clip_info(clip_id: str) -> dict:
   """
@@ -207,13 +163,11 @@ async def get_clip_info(clip_id: str) -> dict:
   clip_info = fetch_clip_info_sync(clip_id)
   return clip_info
 
-
 async def shorten_url(url: str) -> str:
   """
   Asynchronous wrapper to shorten URLs.
   """
   return fetch_shortened_url_sync(url)
-
 
 @app.get("/", response_class=RedirectResponse)
 def root():
@@ -222,7 +176,6 @@ def root():
   """
   logger.info("🏠 Root endpoint accessed; redirecting to GitHub repository.")
   return RedirectResponse(url=GITHUB_REDIRECT_URL, status_code=301)
-
 
 @app.get("/clip/{clip_id}")
 async def handle_clip(clip_id: str):
@@ -267,7 +220,6 @@ async def handle_clip(clip_id: str):
       logger.error(f"❌ Error handling clip_id {clip_id}: {str(e)}")
       return PlainTextResponse(content=f"Error: {str(e)}", status_code=500)
 
-
 @app.middleware("http")
 async def catch_not_found(request: Request, call_next):
   """
@@ -280,4 +232,4 @@ async def catch_not_found(request: Request, call_next):
   return response
 
 # To run the application, use the following command:
-# uvicorn app_with_logger_and_caching:app --host 0.0.0.0 --port 8000
+# uvicorn app_without_caching:app --host 0.0.0.0 --port 8000
