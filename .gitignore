@@ -1,0 +1,7 @@
+.env
+app_debug.log
+app.log
+fxtwitch.py
+uvicorn.access
+worker.js
+__pycache__
