@@ -5,3 +5,5 @@ fxtwitch.py
 uvicorn.access
 worker.js
 __pycache__
+
+fxtwitch_nocache.py
