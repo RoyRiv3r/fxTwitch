@@ -1,4 +1,4 @@
-# fxtwitch by RoyRiv3r
+# fxtwitch.py by RoyRiv3r
 
 import os
 import logging
@@ -178,54 +178,47 @@ def root():
   return RedirectResponse(url=GITHUB_REDIRECT_URL, status_code=301)
 
 @app.get("/clip/{clip_id}")
-async def handle_clip(clip_id: str, request: Request):
-    """
-    Handle Twitch clip requests by processing the clip ID, including metadata for bots 
-    and redirecting for regular users.
-    """
-    logger.info(f"🎥 Handling clip request for clip_id: {clip_id}")
-    try:
-        clip_info = await get_clip_info(clip_id)
-        video_url = clip_info['video_url']
-        logger.info(f"🔗 Clip info retrieved for clip_id: {clip_id}")
+async def handle_clip(clip_id: str):
+  """
+  Handle Twitch clip requests by processing the clip ID.
+  """
+  logger.info(f"🎥 Handling clip request for clip_id: {clip_id}")
+  try:
+      clip_info = await get_clip_info(clip_id)
+      shortened_url = await shorten_url(clip_info['video_url'])
+      logger.info(f"🔗 Clip info retrieved and URL shortened for clip_id: {clip_id}")
 
-        # Check if the request is from a bot
-        user_agent = request.headers.get("user-agent", "").lower()
-        bot_agents = ["bot", "crawler", "spider", "slurp", "facebookexternalhit", "whatsapp"]
-        is_bot = any(agent in user_agent for agent in bot_agents)
+      html_content = f"""
+      <html>
+      <head>
+          <meta charset="utf-8">
+          <meta name="theme-color" content="#6441a5">
+          <meta property="og:title" content="{clip_info['broadcaster_name']} - {clip_info['title']}">
+          <meta property="og:type" content="video">
+          <meta property="og:site_name" content="👁️ Views: {clip_info['view_count']} | {clip_info['creator_name']}">
+          <meta property="og:url" content="{clip_info['url']}">
+          <meta property="og:video" content="{shortened_url}">
+          <meta property="og:video:secure_url" content="{shortened_url}">
+          <meta property="og:video:type" content="video/mp4">
+          <meta property="og:image" content="{clip_info['thumbnail_url']}">
+          <script>
+              window.onload = function() {{
+                  window.location.href = "{clip_info['url']}";
+              }};
+          </script>
+      </head>
+      <body>
+          <p>Redirecting you to the Twitch clip...</p>
+          <p>If you are not redirected automatically, <a href="{clip_info['url']}">click here</a>.</p>
+      </body>
+      </html>
+      """
+      logger.info(f"🔀 Responding with HTML redirect for clip_id: {clip_id}")
+      return HTMLResponse(content=html_content, status_code=200)
 
-        if is_bot:
-            # For bots, return HTML with metadata
-            html_content = f"""
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <meta name="theme-color" content="#6441a5">
-                <meta property="og:title" content="{clip_info['broadcaster_name']} - {clip_info['title']}">
-                <meta property="og:type" content="video">
-                <meta property="og:site_name" content="👁️ Views: {clip_info['view_count']} | {clip_info['creator_name']}">
-                <meta property="og:url" content="{clip_info['url']}">
-                <meta property="og:video" content="{video_url}">
-                <meta property="og:video:secure_url" content="{video_url}">
-                <meta property="og:video:type" content="video/mp4">
-                <meta property="og:image" content="{clip_info['thumbnail_url']}">
-            </head>
-            <body>
-                <p>This page contains metadata for bots.</p>
-            </body>
-            </html>
-            """
-            logger.info(f"🤖 Responding with metadata HTML for bot (clip_id: {clip_id})")
-            return HTMLResponse(content=html_content, status_code=200)
-        else:
-            # For regular users, perform a 301 redirect
-            logger.info(f"🔀 Redirecting to video URL for clip_id: {clip_id}")
-            return RedirectResponse(url=video_url, status_code=301)
-
-    except Exception as e:
-        logger.error(f"❌ Error handling clip_id {clip_id}: {str(e)}")
-        return PlainTextResponse(content=f"Error: {str(e)}", status_code=500)
-
+  except Exception as e:
+      logger.error(f"❌ Error handling clip_id {clip_id}: {str(e)}")
+      return PlainTextResponse(content=f"Error: {str(e)}", status_code=500)
 
 @app.middleware("http")
 async def catch_not_found(request: Request, call_next):
