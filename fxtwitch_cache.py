@@ -34,6 +34,7 @@ TWITCH_CLIENT_SECRET = os.getenv('TWITCH_CLIENT_SECRET')
 
 # Constants
 GITHUB_REDIRECT_URL = 'https://github.com/RoyRiv3r/RoyRiv3r'
+TINYURL_API = 'https://tinyurl.com/api-create.php'
 
 def fetch_twitch_access_token() -> dict:
   """
@@ -131,6 +132,23 @@ def fetch_clip_info_sync(clip_id: str) -> dict:
   logger.info(f"✅ Clip info retrieved for clip_id: {clip_id}")
   return clip_info
 
+def fetch_shortened_url_sync(url: str) -> str:
+  """
+  Shortens a given URL using the TinyURL API.
+  """
+
+  logger.info(f"🔗 Shortening URL: {url}")
+  params = {'url': url}
+  response = requests.get(TINYURL_API, params=params)
+
+  if response.status_code != 200:
+      logger.error('❌ Failed to shorten URL')
+      raise Exception('Failed to shorten URL')
+
+  shortened = response.text.strip()
+  logger.info(f"✅ URL shortened to: {shortened}")
+  return shortened
+
 async def get_twitch_access_token() -> str:
   """
   Asynchronous wrapper to get Twitch access token.
@@ -145,6 +163,12 @@ async def get_clip_info(clip_id: str) -> dict:
   clip_info = fetch_clip_info_sync(clip_id)
   return clip_info
 
+async def shorten_url(url: str) -> str:
+  """
+  Asynchronous wrapper to shorten URLs.
+  """
+  return fetch_shortened_url_sync(url)
+
 @app.get("/", response_class=RedirectResponse)
 def root():
   """
@@ -154,9 +178,10 @@ def root():
   return RedirectResponse(url=GITHUB_REDIRECT_URL, status_code=301)
 
 @app.get("/clip/{clip_id}")
-async def handle_clip(clip_id: str):
+async def handle_clip(clip_id: str, request: Request):
     """
-    Handle Twitch clip requests by processing the clip ID, including metadata and redirecting.
+    Handle Twitch clip requests by processing the clip ID, including metadata for bots 
+    and redirecting for regular users.
     """
     logger.info(f"🎥 Handling clip request for clip_id: {clip_id}")
     try:
@@ -164,32 +189,38 @@ async def handle_clip(clip_id: str):
         video_url = clip_info['video_url']
         logger.info(f"🔗 Clip info retrieved for clip_id: {clip_id}")
 
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="theme-color" content="#6441a5">
-            <meta property="og:title" content="{clip_info['broadcaster_name']} - {clip_info['title']}">
-            <meta property="og:type" content="video">
-            <meta property="og:site_name" content="👁️ Views: {clip_info['view_count']} | {clip_info['creator_name']}">
-            <meta property="og:url" content="{clip_info['url']}">
-            <meta property="og:video" content="{video_url}">
-            <meta property="og:video:secure_url" content="{video_url}">
-            <meta property="og:video:type" content="video/mp4">
-            <meta property="og:image" content="{clip_info['thumbnail_url']}">
-            <meta http-equiv="refresh" content="0;url={video_url}">
-            <script>
-                window.location.href = "{video_url}";
-            </script>
-        </head>
-        <body>
-            <p>Redirecting to the video...</p>
-            <p>If you are not redirected automatically, <a href="{video_url}">click here</a>.</p>
-        </body>
-        </html>
-        """
-        logger.info(f"🔀 Responding with HTML redirect for clip_id: {clip_id}")
-        return HTMLResponse(content=html_content, status_code=200)
+        # Check if the request is from a bot
+        user_agent = request.headers.get("user-agent", "").lower()
+        bot_agents = ["bot", "crawler", "spider", "slurp", "facebookexternalhit", "whatsapp"]
+        is_bot = any(agent in user_agent for agent in bot_agents)
+
+        if is_bot:
+            # For bots, return HTML with metadata
+            html_content = f"""
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="theme-color" content="#6441a5">
+                <meta property="og:title" content="{clip_info['broadcaster_name']} - {clip_info['title']}">
+                <meta property="og:type" content="video">
+                <meta property="og:site_name" content="👁️ Views: {clip_info['view_count']} | {clip_info['creator_name']}">
+                <meta property="og:url" content="{clip_info['url']}">
+                <meta property="og:video" content="{video_url}">
+                <meta property="og:video:secure_url" content="{video_url}">
+                <meta property="og:video:type" content="video/mp4">
+                <meta property="og:image" content="{clip_info['thumbnail_url']}">
+            </head>
+            <body>
+                <p>This page contains metadata for bots.</p>
+            </body>
+            </html>
+            """
+            logger.info(f"🤖 Responding with metadata HTML for bot (clip_id: {clip_id})")
+            return HTMLResponse(content=html_content, status_code=200)
+        else:
+            # For regular users, perform a 301 redirect
+            logger.info(f"🔀 Redirecting to video URL for clip_id: {clip_id}")
+            return RedirectResponse(url=video_url, status_code=301)
 
     except Exception as e:
         logger.error(f"❌ Error handling clip_id {clip_id}: {str(e)}")
